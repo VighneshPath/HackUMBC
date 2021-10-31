@@ -9,8 +9,18 @@ import seaborn as sns
 import re
 from statsmodels.tsa.arima.model import ARIMA
 from datetime import timedelta
+from sklearn.linear_model import LinearRegression
 
-days_to_predict = st.select_slider("No. of Days ahead to predict", range(0,8))
+
+days_to_predict = 1
+
+st.title("Prediction of Daily Covid-19 Cases")
+
+days_to_predict = st.select_slider("No. of Days ahead to predict", range(1,8), value = 3)
+
+st.sidebar.title("Choose a method to predict Daily Covid-19 Cases")
+chart_visual = st.sidebar.selectbox('Select Algorithm', 
+                                    ('Auto-Regressive Integrated Moving-Average', 'Linear Regression'))
 
 new_cases = "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/jhu/new_cases.csv"
 
@@ -30,9 +40,37 @@ india_df.dropna(inplace = True)
 
 usa_df.dropna(inplace = True)
 
-print(usa_df.tail())
 
-def arima_predict(dfs, days_ahead):
+def lr_predict(dfs, n): 
+    """
+        A Function which takes an List of dataframes, and an integer between 1 to 7 for number of days for prediction.
+        This is limited because if the number of days increases, the model may take alot of time to compute.
+        Returns an List of arrays, consisting of the "days_ahead" values predictions of the given dataframes.
+    """
+    start_date = dfs[0].iloc[-1].name
+    predictions = []
+    for df in dfs:
+        next_date = len(df) + 1
+        
+        x = np.arange(len(df))
+        y=df.values
+
+        x=x.reshape(-1,1)
+
+        regressor = LinearRegression()
+        regressor.fit(x,y) 
+        index_future_dates = pd.date_range(start = start_date + timedelta(days=1), end = start_date + timedelta(days=(n)))
+        temp = []
+        for i in range(next_date, next_date + n):
+            temp.append(regressor.predict([[i]])[0][0])
+        pred = pd.DataFrame(temp, index = index_future_dates)
+        pred.index = index_future_dates.strftime('%d/%m/%Y')
+        predictions.append(pred)
+    return predictions
+
+
+
+def arima_predict(dfs, days_ahead=3):
     """
         A Function which takes an List of dataframes, and an integer between 1 to 7 for number of days for prediction.
         This is limited because if the number of days increases, the model may take alot of time to compute.
@@ -45,7 +83,7 @@ def arima_predict(dfs, days_ahead):
     
     for df in dfs:
         # Taking into consideration only recent cases to avoid overfitting
-        df = df[-120:]
+        df = df[-150:]
         
         warnings.filterwarnings("ignore")
 
@@ -69,16 +107,58 @@ def arima_predict(dfs, days_ahead):
 
         pred.index = index_future_dates 
 
+        pred.index = index_future_dates.strftime('%d/%m/%Y')
+
         predictions.append([pred])
     return predictions
 
-final_predictions = arima_predict([india_df, usa_df], days_to_predict)
+if(chart_visual == "Auto-Regressive Integrated Moving-Average"):
+    final_predictions = arima_predict([india_df, usa_df], days_to_predict)
 
-for pred in final_predictions:
-    for series in pred:
+    st.markdown("Using ARIMA")
+
+    countries = ["India", "United States"]
+
+    for pred in range(len(final_predictions)):
+        for i in range(len(final_predictions[pred])):
+            
+            st.markdown(f"## {countries[pred]}")
+
+            st.markdown(f"### Values Predicted")
+
+            df = pd.DataFrame({'Dates':final_predictions[pred][i].index, 'Predictions':final_predictions[pred][i].values})
+            st.dataframe(df)
+
+            st.markdown(f"### Visualisation")
+
+            fig = plt.figure(figsize = (8, 2), dpi = 100) 
+            ax = fig.add_axes([0,0,1,1])
+
+            ax.plot(final_predictions[pred][i],  label = "ARIMA")
+            ax.legend(loc='best')
+            st.pyplot(fig)
+
+elif(chart_visual == "Linear Regression"):
+    final_predictionlr = lr_predict([india_df, usa_df], days_to_predict)
+
+    st.markdown("Using Linear Regression")
+
+    countries = ["India", "United States"]
+
+    for i in range(len(final_predictionlr)):
+            
+        st.markdown(f"## {countries[i]}")
+
+        st.markdown(f"### Values Predicted")
+
+        df = pd.DataFrame({'Dates':final_predictionlr[i].index, 'Predictions':final_predictionlr[i][final_predictionlr[i].columns[0]].values})
+        st.dataframe(df)
+
+        st.markdown(f"### Visualisation")
+
         fig = plt.figure(figsize = (8, 2), dpi = 100) 
         ax = fig.add_axes([0,0,1,1])
 
-        ax.plot(series,  label = "ARIMA")
+        ax.plot(final_predictionlr[i],  label = "Linear Regression")
         ax.legend(loc='best')
         st.pyplot(fig)
